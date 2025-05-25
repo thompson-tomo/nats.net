@@ -80,7 +80,7 @@ public abstract partial class NatsConnectionTest
                 {
                     AuthOpts = NatsAuthOpts.Default with
                     {
-                        AuthCredCallback = async (_, _) => await Task.FromResult(NatsAuthCred.FromNkey("SUAAVWRZG6M5FA5VRRGWSCIHKTOJC7EWNIT4JV3FTOIPO4OBFR5WA7X5TE")),
+                        AuthCredCallback = async (_, _) => await Task.FromResult(NatsAuthCred.FromNkey(NKeys.PublicKeyFromSeed("SUAAVWRZG6M5FA5VRRGWSCIHKTOJC7EWNIT4JV3FTOIPO4OBFR5WA7X5TE"), "SUAAVWRZG6M5FA5VRRGWSCIHKTOJC7EWNIT4JV3FTOIPO4OBFR5WA7X5TE")),
                         NKey = "invalid nkey",
                         Seed = "invalid seed",
                     },

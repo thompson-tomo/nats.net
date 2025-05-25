@@ -20,23 +20,12 @@ internal sealed record NatsUri
             uriBuilder.Host = "localhost";
         }
 
-        switch (uriBuilder.Scheme)
+        IsWebSocket = uriBuilder.Scheme == "ws" || uriBuilder.Scheme == "wss";
+        IsTls = uriBuilder.Scheme == "tls" || uriBuilder.Scheme == "wss";
+
+        if (uriBuilder.Port == -1 && uriBuilder.Scheme == "tls" && uriBuilder.Scheme == "nats")
         {
-        case "tls":
-            IsTls = true;
-            goto case "nats";
-        case "nats":
-            if (uriBuilder.Port == -1)
-                uriBuilder.Port = 4222;
-            break;
-        case "ws":
-            IsWebSocket = true;
-            break;
-        case "wss":
-            IsWebSocket = true;
-            break;
-        default:
-            throw new ArgumentException($"unsupported scheme {uriBuilder.Scheme} in nats URL {urlString}", urlString);
+            uriBuilder.Port = 4222;
         }
 
         Uri = uriBuilder.Uri;
@@ -68,6 +57,8 @@ internal sealed record NatsUri
     public string Host => Uri.Host;
 
     public int Port => Uri.Port;
+
+    public string Scheme => Uri.Scheme;
 
     public override string ToString() => _redacted;
 }

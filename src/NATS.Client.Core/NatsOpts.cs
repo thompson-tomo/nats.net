@@ -181,6 +181,7 @@ public sealed record NatsOpts
     /// For the library to handle TLS upgrade automatically, implement the <see cref="INatsTlsUpgradeableSocketConnection"/> interface.
     /// </summary>
     /// <seealso cref="INatsTlsUpgradeableSocketConnection"/>
+    [Obsolete("To suppoort simultaneous transports we now offer the ability to add multple transports including the schemes they support.")]
     public INatsSocketConnectionFactory? SocketConnectionFactory { get; init; }
 
     internal NatsUri[] GetSeedUris(bool suppressRandomization = false)

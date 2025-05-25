@@ -1,8 +1,10 @@
 namespace NATS.Client.Core.Internal
 {
-    internal sealed class TcpFactory : INatsSocketConnectionFactory
+    internal sealed class TcpFactory : INatsTransportScheme
     {
-        public static INatsSocketConnectionFactory Default { get; } = new TcpFactory();
+        public static INatsTransportScheme Default { get; } = new TcpFactory();
+
+        public List<string> SupportedSchemes => new List<string>() { "tls", "nats" };
 
         public async ValueTask<INatsSocketConnection> ConnectAsync(Uri uri, NatsOpts opts, CancellationToken cancellationToken)
         {

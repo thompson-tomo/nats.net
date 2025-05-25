@@ -46,6 +46,9 @@ public partial class NatsConnection : INatsConnection
     private readonly ReplyTaskFactory _replyTaskFactory;
 
     private ServerInfo? _writableServerInfo;
+    private INatsAuth? _natsAuth = null;
+    private INatsSigning? _natsSigning = null;
+    private NatsConnectionFactoryResolver _natsConnectionFactoryResolver = new NatsConnectionFactoryResolver();
     private int _pongCount;
     private int _connectionState;
     private int _isDisposed;
@@ -58,7 +61,6 @@ public partial class NatsConnection : INatsConnection
     private volatile NatsUri? _lastSeedConnectUri;
     private NatsReadProtocolProcessor? _socketReader;
     private TaskCompletionSource _waitForOpenConnection;
-    private UserCredentials? _userCredentials;
     private int _connectRetry;
     private TimeSpan _backoff = TimeSpan.Zero;
     private string _lastAuthError = string.Empty;
@@ -94,6 +96,15 @@ public partial class NatsConnection : INatsConnection
             SingleReader = false,
             AllowSynchronousContinuations = false,
         };
+        if (opts.SocketConnectionFactory is not null)
+        {
+            _natsConnectionFactoryResolver.SetTransportScheme(opts.SocketConnectionFactory);
+        }
+        else
+        {
+            _natsConnectionFactoryResolver.AddTransportScheme(WebSocketFactory.Default);
+            _natsConnectionFactoryResolver.AddTransportScheme(TcpFactory.Default);
+        }
 
         // push consumer events to a channel so handlers can be awaited (also prevents user code from blocking us)
         _eventChannel = Channel.CreateUnbounded<(NatsEvent, NatsEventArgs)>(new UnboundedChannelOptions { AllowSynchronousContinuations = false, SingleWriter = false, SingleReader = true, });
@@ -164,6 +175,23 @@ public partial class NatsConnection : INatsConnection
 
     // only used for internal testing
     internal SocketConnectionWrapper? TestSocketConnection => _socketConnection;
+
+    public void SetAuthMethod(INatsAuth authMethod)
+    {
+        _natsAuth = authMethod;
+
+        _natsSigning ??= new NKeySigning();
+    }
+
+    public void SetSigningMethod(INatsSigning signingMethod)
+    {
+        _natsSigning = signingMethod;
+    }
+
+    public void AddSchemeTransport(INatsTransportScheme schemeTransport)
+    {
+        _natsConnectionFactoryResolver.AddTransportScheme(schemeTransport);
+    }
 
     /// <summary>
     /// Connect socket and write CONNECT command to nats server.
@@ -352,9 +380,11 @@ public partial class NatsConnection : INatsConnection
                 throw new NatsException($"URI {uri} requires TLS but TlsMode is set to Disable");
         }
 
-        if (!Opts.AuthOpts.IsAnonymous)
+        _natsAuth ??= NatsAuthResolver.GetAuthFromOptions(Opts.AuthOpts, _currentConnectUri);
+
+        if (_natsAuth is not null)
         {
-            _userCredentials = new UserCredentials(Opts.AuthOpts);
+            _natsSigning ??= new NKeySigning();
         }
 
         foreach (var uri in uris)
@@ -429,7 +459,7 @@ public partial class NatsConnection : INatsConnection
             }
         }
 
-        var connectionFactory = Opts.SocketConnectionFactory ?? (uri.IsWebSocket ? WebSocketFactory.Default : TcpFactory.Default);
+        var connectionFactory = _natsConnectionFactoryResolver.Resolve(uri.Scheme);
         _logger.LogInformation(NatsLogEvents.Connection, "Connect to NATS using {FactoryType} {Uri}", connectionFactory.GetType().Name, uri);
         using var timeoutCts = new CancellationTokenSource(Opts.ConnectTimeout);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(_disposedCts.Token, timeoutCts.Token);
@@ -523,9 +553,30 @@ public partial class NatsConnection : INatsConnection
             infoParsedSignal.SetResult();
 
             // Authentication
-            if (_userCredentials != null)
+            if (_natsAuth != null)
             {
-                await _userCredentials.AuthenticateAsync(_clientOpts, WritableServerInfo, _currentConnectUri, Opts.ConnectTimeout, _disposedCts.Token).ConfigureAwait(false);
+                var authCred = await _natsAuth.GetAuthCredAsync(_disposedCts.Token).ConfigureAwait(false);
+                switch (authCred.Type)
+                {
+                case NatsAuthType.UserInfo:
+                    _clientOpts.Username = authCred.Value;
+                    _clientOpts.Password = authCred.Secret;
+                    break;
+                case NatsAuthType.Token:
+                    _clientOpts.AuthToken = authCred.Value;
+                    break;
+                case NatsAuthType.Jwt:
+                    _clientOpts.JWT = authCred.Value;
+                    break;
+                case NatsAuthType.Nkey:
+                    _clientOpts.NKey = authCred.Value;
+                    break;
+                }
+
+                if (ServerInfo is { AuthRequired: true, Nonce: { } } && _natsSigning is not null)
+                {
+                    _clientOpts.Sig = _natsSigning.Sign(ServerInfo.Nonce, authCred.Seed);
+                }
             }
 
             await using (var priorityCommandWriter = new PriorityCommandWriter(this, _pool, _socketConnection!, Opts, Counter, EnqueuePing))

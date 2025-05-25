@@ -1,8 +1,10 @@
 namespace NATS.Client.Core.Internal
 {
-    internal sealed class WebSocketFactory : INatsSocketConnectionFactory
+    internal sealed class WebSocketFactory : INatsTransportScheme
     {
-        public static INatsSocketConnectionFactory Default { get; } = new WebSocketFactory();
+        public static INatsTransportScheme Default { get; } = new WebSocketFactory();
+
+        public List<string> SupportedSchemes => new List<string>() { "ws", "wss" };
 
         public async ValueTask<INatsSocketConnection> ConnectAsync(Uri uri, NatsOpts opts, CancellationToken cancellationToken)
         {
