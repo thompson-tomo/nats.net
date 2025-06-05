@@ -39,16 +39,15 @@ internal class NatsJSFetch<TMsg> : NatsSubBase
         TimeSpan expires,
         TimeSpan idle,
         NatsJSContext context,
+        NatsSubscriptionProps props,
         string stream,
         string consumer,
-        string subject,
-        string? queueGroup,
         Func<INatsJSNotification, CancellationToken, Task>? notificationHandler,
         INatsDeserialize<TMsg> serializer,
         NatsSubOpts? opts,
         NatsJSPriorityGroupOpts? priorityGroup,
         CancellationToken cancellationToken)
-        : base(context.Connection, context.Connection.SubscriptionManager, subject, queueGroup, opts)
+        : base(context.Connection, context.Connection.SubscriptionManager, props, opts, cancellationToken)
     {
         _logger = Connection.Opts.LoggerFactory.CreateLogger<NatsJSFetch<TMsg>>();
         _debug = _logger.IsEnabled(LogLevel.Debug);
@@ -129,13 +128,27 @@ internal class NatsJSFetch<TMsg> : NatsSubBase
 
     public ChannelReader<NatsJSMsg<TMsg>> Msgs { get; }
 
-    public ValueTask CallMsgNextAsync(ConsumerGetnextRequest request, CancellationToken cancellationToken = default) =>
-        Connection.PublishAsync(
-            subject: $"{_context.Opts.Prefix}.CONSUMER.MSG.NEXT.{_stream}.{_consumer}",
+    public ValueTask CallMsgNextAsync(ConsumerGetnextRequest request, CancellationToken cancellationToken = default)
+    {
+        var prop = new NatsPublishProps(new NatsSubject(
+            "{prefix}.{entity}.{subentity}.{action}.{stream}.{id}",
+            new Dictionary<string, object>()
+            {
+                { "prefix", _context.Opts.Prefix },
+                { "entity", "CONSUMER" },
+                { "subentity", "MSG" },
+                { "action", "NEXT" },
+                { "stream", _stream },
+                { "id", _consumer },
+            }));
+        prop.SetReplyTo(SubscriptionProps.Subject);
+        return Connection.PublishAsync(
+            subject: string.Empty,
             data: request,
-            replyTo: Subject,
+            opts: new NatsPubOpts() { Props = prop },
             serializer: NatsJSJsonSerializer<ConsumerGetnextRequest>.Default,
             cancellationToken: cancellationToken);
+    }
 
     public void StopHeartbeatTimer()
     {
@@ -180,9 +193,9 @@ internal class NatsJSFetch<TMsg> : NatsSubBase
         }
     }
 
-    internal override async ValueTask WriteReconnectCommandsAsync(CommandWriter commandWriter, int sid)
+    internal override async ValueTask WriteReconnectCommandsAsync(CommandWriter commandWriter, NatsSubscriptionProps props)
     {
-        await base.WriteReconnectCommandsAsync(commandWriter, sid);
+        await base.WriteReconnectCommandsAsync(commandWriter, props);
         var request = new ConsumerGetnextRequest
         {
             Batch = _maxMsgs,
@@ -193,11 +206,22 @@ internal class NatsJSFetch<TMsg> : NatsSubBase
             MinAckPending = _priorityGroup?.MinAckPending ?? 0,
         };
 
+        var pubProps = new NatsPublishProps(new NatsSubject(
+            "{prefix}.{entity}.{subentity}.{action}.{stream}.{id}",
+            new Dictionary<string, object>()
+            {
+                    { "prefix", _context.Opts.Prefix },
+                    { "entity", "CONSUMER" },
+                    { "subentity", "MSG" },
+                    { "action", "NEXT" },
+                    { "stream", _stream },
+                    { "id", _consumer },
+            }));
+        pubProps.SetReplyTo(SubscriptionProps.Subject);
         await commandWriter.PublishAsync(
-            subject: $"{_context.Opts.Prefix}.CONSUMER.MSG.NEXT.{_stream}.{_consumer}",
+            pubProps,
             value: request,
             headers: default,
-            replyTo: Subject,
             serializer: NatsJSJsonSerializer<ConsumerGetnextRequest>.Default,
             cancellationToken: CancellationToken.None);
     }
