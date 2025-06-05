@@ -53,16 +53,15 @@ internal class NatsJSConsume<TMsg> : NatsSubBase
         TimeSpan expires,
         TimeSpan idle,
         NatsJSContext context,
+        NatsSubscriptionProps props,
         string stream,
         string consumer,
-        string subject,
-        string? queueGroup,
         Func<INatsJSNotification, CancellationToken, Task>? notificationHandler,
         INatsDeserialize<TMsg> serializer,
         NatsSubOpts? opts,
         NatsJSPriorityGroupOpts? priorityGroup,
         CancellationToken cancellationToken)
-        : base(context.Connection, context.Connection.SubscriptionManager, subject, queueGroup, opts)
+        : base(context.Connection, context.Connection.SubscriptionManager, props, opts)
     {
         _cancellationToken = cancellationToken;
         _logger = Connection.Opts.LoggerFactory.CreateLogger<NatsJSConsume<TMsg>>();
@@ -157,10 +156,23 @@ internal class NatsJSConsume<TMsg> : NatsSubBase
             _logger.LogDebug(NatsJSLogEvents.PullRequest, "Sending pull request for {Origin} {Msgs}, {Bytes}", origin, request.Batch, request.MaxBytes);
         }
 
+        var prop = new NatsPublishProps(new NatsSubject(
+            "{prefix}.{entity}.{subentity}.{action}.{stream}.{id}",
+            new Dictionary<string, object>()
+            {
+                { "prefix", _context.Opts.Prefix },
+                { "entity", "CONSUMER" },
+                { "subentity", "MSG" },
+                { "action", "NEXT" },
+                { "stream", _stream },
+                { "id", _consumer },
+            }));
+        prop.SetReplyTo(SubscriptionProps.Subject);
+
         return Connection.PublishAsync(
-            subject: $"{_context.Opts.Prefix}.CONSUMER.MSG.NEXT.{_stream}.{_consumer}",
+            subject: string.Empty,
             data: request,
-            replyTo: Subject,
+            opts: new NatsPubOpts() { Props = prop },
             serializer: NatsJSJsonSerializer<ConsumerGetnextRequest>.Default,
             cancellationToken: cancellationToken);
     }
@@ -209,9 +221,9 @@ internal class NatsJSConsume<TMsg> : NatsSubBase
         }
     }
 
-    internal override async ValueTask WriteReconnectCommandsAsync(CommandWriter commandWriter, int sid)
+    internal override async ValueTask WriteReconnectCommandsAsync(CommandWriter commandWriter, NatsSubscriptionProps props)
     {
-        await base.WriteReconnectCommandsAsync(commandWriter, sid);
+        await base.WriteReconnectCommandsAsync(commandWriter, props);
 
         if (_cancellationToken.IsCancellationRequested)
             return;
@@ -246,12 +258,22 @@ internal class NatsJSConsume<TMsg> : NatsSubBase
                 MinPending = _priorityGroup?.MinPending ?? 0,
                 MinAckPending = _priorityGroup?.MinAckPending ?? 0,
             };
-
+            var prop = new NatsPublishProps(new NatsSubject(
+                "{prefix}.{entity}.{subentity}.{action}.{stream}.{id}",
+                new Dictionary<string, object>()
+                {
+                    { "prefix", _context.Opts.Prefix },
+                    { "entity", "CONSUMER" },
+                    { "subentity", "MSG" },
+                    { "action", "NEXT" },
+                    { "stream", _stream },
+                    { "id", _consumer },
+                }));
+            prop.SetReplyTo(SubscriptionProps.Subject);
             await commandWriter.PublishAsync(
-                subject: $"{_context.Opts.Prefix}.CONSUMER.MSG.NEXT.{_stream}.{_consumer}",
+                props: prop,
                 value: request,
                 headers: default,
-                replyTo: Subject,
                 serializer: NatsJSJsonSerializer<ConsumerGetnextRequest>.Default,
                 cancellationToken: CancellationToken.None);
 

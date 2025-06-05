@@ -165,27 +165,68 @@ public class NatsJSStream : INatsJSStream
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the API call.</param>
     /// <exception cref="NatsJSException">There was an issue retrieving the response.</exception>
     /// <exception cref="NatsJSApiException">Server responded with an error.</exception>
-    public async ValueTask RefreshAsync(CancellationToken cancellationToken = default) =>
-        Info = await _context.JSRequestResponseAsync<object, StreamInfoResponse>(
-            subject: $"{_context.Opts.Prefix}.STREAM.INFO.{_name}",
-            request: null,
-            cancellationToken).ConfigureAwait(false);
+    public async ValueTask RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        var prop = new NatsPublishProps(new NatsSubject(
+            "{prefix}.{entity}.{action}.{id}",
+            new Dictionary<string, object>()
+            {
+                { "prefix", _context.Opts.Prefix },
+                { "entity", "STREAM" },
+                { "action", "INFO" },
+                { "id", _name },
+            }));
+        var response = await _context.JSRequestAsync<object, StreamInfoResponse>(prop, null, cancellationToken);
+        response.EnsureSuccess();
+        Info = response.Response!;
+    }
 
     public ValueTask<NatsMsg<T>> GetDirectAsync<T>(StreamMsgGetRequest request, INatsDeserialize<T>? serializer = default, CancellationToken cancellationToken = default)
     {
+        var prop = new NatsPublishProps(new NatsSubject(
+            "{prefix}.{entity}.{action}.{id}",
+            new Dictionary<string, object>()
+            {
+                { "prefix", _context.Opts.Prefix },
+                { "entity", "DIRECT" },
+                { "action", "GET" },
+                { "id", _name },
+            }));
         return _context.Connection.RequestAsync<StreamMsgGetRequest, T>(
-            subject: $"{_context.Opts.Prefix}.DIRECT.GET.{_name}",
+            subject: string.Empty,
             data: request,
+            requestOpts: new NatsPubOpts() { Props = prop },
             requestSerializer: NatsJSJsonSerializer<StreamMsgGetRequest>.Default,
             replySerializer: serializer,
             cancellationToken: cancellationToken);
     }
 
-    public ValueTask<StreamMsgGetResponse> GetAsync(StreamMsgGetRequest request, CancellationToken cancellationToken = default) =>
-        _context.JSRequestResponseAsync<StreamMsgGetRequest, StreamMsgGetResponse>(
-            subject: $"{_context.Opts.Prefix}.STREAM.MSG.GET.{_name}",
-            request: request,
-            cancellationToken);
+    public ValueTask<StreamMsgGetResponse> GetAsync(StreamMsgGetRequest request, CancellationToken cancellationToken = default)
+    {
+        var prop = new NatsPublishProps(new NatsSubject(
+            "{prefix}.{entity}.{subentity}.{action}.{id}",
+            new Dictionary<string, object>()
+            {
+                { "prefix", _context.Opts.Prefix },
+                { "entity", "STREAM" },
+                { "subentity", "MSG" },
+                { "action", "GET" },
+                { "id", _name },
+            }));
+        return JSRequestResponseAsync<StreamMsgGetRequest, StreamMsgGetResponse>(prop, request, cancellationToken);
+    }
+
+    private async ValueTask<TResponse> JSRequestResponseAsync<TRequest, TResponse>(
+        NatsPublishProps prop,
+        TRequest? request,
+        CancellationToken cancellationToken = default)
+        where TRequest : class
+        where TResponse : class
+    {
+        var response = await _context.JSRequestAsync<TRequest, TResponse>(prop, request, cancellationToken);
+        response.EnsureSuccess();
+        return response.Response!;
+    }
 
     private void ThrowIfDeleted()
     {
