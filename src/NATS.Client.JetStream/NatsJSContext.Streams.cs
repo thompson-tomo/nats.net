@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.CompilerServices;
 using NATS.Client.Core;
 using NATS.Client.JetStream.Models;
@@ -280,20 +281,15 @@ public partial class NatsJSContext
     private NatsPublishProps GetStreamProps(string action, string? consumer = default)
     {
         var template = "{prefix}.{entity}.{action}";
-        var values = new Dictionary<string, object>()
-            {
-                { "prefix", Opts.Prefix },
-                { "entity", "STREAM" },
-                { "action", action },
-            };
+        _natsSubjectBuilder.AddParameter("prefix", Opts.Prefix);
+        _natsSubjectBuilder.AddParameter("entity", "STREAM");
+        _natsSubjectBuilder.AddParameter("action", action);
+        _natsSubjectBuilder.AddParameter("id", consumer);
         if (consumer != null)
         {
             template += ".{id}";
-            values.Add("id", consumer);
         }
 
-        return new NatsPublishProps(
-            template,
-            values);
+        return new NatsPublishProps(_natsSubjectBuilder.GenerateFromTemplate(template));
     }
 }

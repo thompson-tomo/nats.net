@@ -279,19 +279,16 @@ public partial class NatsJSContext : INatsJSContext
     private NatsPublishProps GetConsumerProps(string action, string stream, string? consumer = default)
     {
         var template = "{prefix}.{entity}.{action}.{stream}";
-        var values = new Dictionary<string, object>()
-            {
-                { "prefix", Opts.Prefix },
-                { "entity", "CONSUMER" },
-                { "action", action },
-                { "stream", stream },
-            };
+        _natsSubjectBuilder.AddParameter("prefix", Opts.Prefix);
+        _natsSubjectBuilder.AddParameter("entity", "CONSUMER");
+        _natsSubjectBuilder.AddParameter("action", action);
+        _natsSubjectBuilder.AddParameter("stream", stream);
+        _natsSubjectBuilder.AddParameter("id", consumer);
         if (consumer != null)
         {
             template += ".{id}";
-            values.Add("id", consumer);
         }
 
-        return new NatsPublishProps(template, values);
+        return new NatsPublishProps(_natsSubjectBuilder.GenerateFromTemplate(template));
     }
 }
