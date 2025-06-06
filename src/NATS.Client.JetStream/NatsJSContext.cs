@@ -11,6 +11,7 @@ namespace NATS.Client.JetStream;
 /// <summary>Provides management and access to NATS JetStream streams and consumers.</summary>
 public partial class NatsJSContext
 {
+    internal readonly NatsSubjectBuilder _natsSubjectBuilder;
     private readonly ILogger _logger;
 
     /// <inheritdoc cref="NatsJSContext(NATS.Client.Core.INatsConnection,NATS.Client.JetStream.NatsJSOpts)"/>>
@@ -29,6 +30,7 @@ public partial class NatsJSContext
         Connection = connection;
         Opts = opts;
         _logger = connection.Opts.LoggerFactory.CreateLogger<NatsJSContext>();
+        _natsSubjectBuilder = new NatsSubjectBuilder();
     }
 
     public INatsConnection Connection { get; }
